@@ -1,6 +1,6 @@
 script_name('GambitAnimList')
 script_author('medved')
-script_version('1.1')
+script_version('1.2')
 
 -- ОГРОМНОЕ СПАСИБО CHAPO (https://www.blast.hk/members/112329/) ЗА КОД-РЕВЬЮ, ЧАСТЬ КОДА ПОСЛЕ КОТОРОГО Я, КОНЕЧНО ЖЕ, НЕ СКОРРЕКТИРОВАЛ ))))0)0)0
 -- НУ МЫ ЕМУ ОБ ЭТОМ НЕ СКАЖЕМ?
@@ -9,6 +9,10 @@ local imgui = require 'mimgui'
 local vkeys = require 'vkeys'
 local wm = require 'windows.message'
 local ffi = require 'ffi'
+local encoding = require 'encoding'
+encoding.default = 'CP1251'
+local u8 = encoding.UTF8
+
 local new = imgui.new
 
 local renderWindow = new.bool(false)
@@ -324,6 +328,41 @@ local animations = {
     {name = "spank 8", keywords = "шлепок, подзатыльник, веселье, смех, шалость, прикол, забава, флирт", description = "Шлепать по заднице 8"},
 }
 
+local function applyCustomStyle()
+    local style = imgui.GetStyle()
+    local colors = style.Colors
+    local clr = imgui.Col
+
+    style.WindowRounding = 6.0
+    style.ChildRounding = 6.0
+    style.FrameRounding = 4.0
+    style.ItemSpacing = imgui.ImVec2(8, 4)
+    style.ScrollbarSize = 12.0
+    style.ScrollbarRounding = 6.0
+
+    colors[clr.Text]                   = imgui.ImVec4(0.95, 0.96, 0.98, 1.00)
+    colors[clr.TextDisabled]           = imgui.ImVec4(0.36, 0.42, 0.47, 1.00)
+    colors[clr.WindowBg]               = imgui.ImVec4(0.11, 0.12, 0.17, 1.00)
+    colors[clr.ChildBg]                = imgui.ImVec4(0.15, 0.18, 0.22, 1.00)
+    colors[clr.Border]                 = imgui.ImVec4(0.43, 0.43, 0.50, 0.50)
+    colors[clr.FrameBg]                = imgui.ImVec4(0.20, 0.25, 0.29, 1.00)
+    colors[clr.FrameBgHovered]         = imgui.ImVec4(0.12, 0.20, 0.28, 1.00)
+    colors[clr.FrameBgActive]          = imgui.ImVec4(0.09, 0.12, 0.14, 1.00)
+    colors[clr.TitleBg]                = imgui.ImVec4(0.09, 0.12, 0.14, 0.65)
+    colors[clr.TitleBgActive]          = imgui.ImVec4(0.08, 0.10, 0.12, 1.00)
+    colors[clr.CheckMark]              = imgui.ImVec4(0.28, 0.56, 1.00, 1.00)
+    colors[clr.Button]                 = imgui.ImVec4(0.20, 0.25, 0.29, 1.00)
+    colors[clr.ButtonHovered]          = imgui.ImVec4(0.28, 0.56, 1.00, 1.00)
+    colors[clr.ButtonActive]           = imgui.ImVec4(0.06, 0.53, 0.98, 1.00)
+    colors[clr.Header]                 = imgui.ImVec4(0.20, 0.25, 0.29, 0.55)
+    colors[clr.HeaderHovered]          = imgui.ImVec4(0.26, 0.59, 0.98, 0.80)
+end
+
+imgui.OnInitialize(function()
+    applyCustomStyle()
+    imgui.GetIO().IniFilename = nil
+end)
+
 local function saveFavorites()
     local file = io.open(favoritesFilePath, "w")
     if file then
@@ -350,7 +389,7 @@ local function loadFavorites()
 end
 
 local function sendChatCommand(command)
-    sampSendChat("/" .. command)
+    sampSendChat("/" .. u8:decode(command))
 end
 
 local function isInFavorites(animName)
@@ -360,6 +399,20 @@ local function isInFavorites(animName)
         end
     end
     return false
+end
+
+local function toggleFavorite(anim)
+    if isInFavorites(anim.name) then
+        for i, fav in ipairs(favoriteAnimations) do
+            if fav.name == anim.name then
+                table.remove(favoriteAnimations, i)
+                break
+            end
+        end
+    else
+        table.insert(favoriteAnimations, anim)
+    end
+    saveFavorites()
 end
 
 local function coloredButton(label, color, size)
@@ -375,32 +428,43 @@ local newFrame = imgui.OnFrame(
     function() return renderWindow[0] end,
     function()
         imgui.SetNextWindowPos(imgui.ImVec2(sizeX / 2, sizeY / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-        imgui.SetNextWindowSize(imgui.ImVec2(400, 300), imgui.Cond.FirstUseEver)
+        imgui.SetNextWindowSize(imgui.ImVec2(460, 420), imgui.Cond.FirstUseEver)
+        
         imgui.Begin("Список анимаций", renderWindow)
 
-        imgui.Text("Поиск анимаций:")
-        searchQuery:Draw("##Search", 350)
-
+        imgui.Text("Поиск:")
+        imgui.SameLine()
+        searchQuery:Draw("##Search", 380)
         imgui.Separator()
 
-        for _, anim in ipairs(animations) do
-            if searchQuery:PassFilter(anim.name) or searchQuery:PassFilter(anim.description) or searchQuery:PassFilter(anim.keywords)then
+        imgui.BeginChild("AnimListRegion", imgui.ImVec2(0, 0), true)
+
+        for i, anim in ipairs(animations) do
+            if searchQuery:PassFilter(anim.name) or searchQuery:PassFilter(anim.description) or searchQuery:PassFilter(anim.keywords) then
+                
                 imgui.TextWrapped(anim.description)
-                if imgui.Button(anim.name .. "##" .. anim.name) then
+                
+                if imgui.Button(anim.name .. "##play" .. i, imgui.ImVec2(130, 25)) then
                     sendChatCommand(anim.name)
                 end
+                
                 imgui.SameLine()
-                if not isInFavorites(anim.name) then
-                    if coloredButton("Сохранить##" .. anim.name, imgui.ImVec4(0.5, 0.5, 0.5, 1.0), imgui.ImVec2(85, 25)) then
-                        table.insert(favoriteAnimations, anim)
-                        saveFavorites()
-                    end
-                else
-                    imgui.Text("(В избранном)")
+                
+                local isFav = isInFavorites(anim.name)
+                local btnText = isFav and "Убрать" or "В избранное"
+                local btnColor = isFav and imgui.ImVec4(0.6, 0.25, 0.25, 1.0) or imgui.ImVec4(0.25, 0.45, 0.3, 1.0)
+                
+                if coloredButton(btnText .. "##fav" .. i, btnColor, imgui.ImVec2(110, 25)) then
+                    toggleFavorite(anim)
                 end
+
+                imgui.Spacing()
+                imgui.Separator()
+                imgui.Spacing()
             end
         end
 
+        imgui.EndChild()
         imgui.End()
     end
 )
@@ -410,18 +474,32 @@ local favoritesFrame = imgui.OnFrame(
     function()
         imgui.SetNextWindowPos(imgui.ImVec2(sizeX / 2, sizeY / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
         imgui.SetNextWindowSize(imgui.ImVec2(400, 300), imgui.Cond.FirstUseEver)
+        
         imgui.Begin("Избранные анимации", renderFavorites)
-        for i = #favoriteAnimations, 1, -1 do
-            local anim = favoriteAnimations[i]
-            imgui.TextWrapped(anim.description)
-            if imgui.Button(anim.name .. "##favorite" .. anim.name) then
-                sendChatCommand(anim.name)
+        
+        if #favoriteAnimations == 0 then
+            imgui.TextDisabled("Список пуст.")
+        else
+            imgui.BeginChild("FavListRegion", imgui.ImVec2(0, 0), true)
+            for i = #favoriteAnimations, 1, -1 do
+                local anim = favoriteAnimations[i]
+                
+                imgui.TextWrapped(anim.description)
+                
+                if imgui.Button(anim.name .. "##fav_play" .. i, imgui.ImVec2(130, 25)) then
+                    sendChatCommand(anim.name)
+                end
+                
+                imgui.SameLine()
+                
+                if coloredButton("Удалить##remove" .. i, imgui.ImVec4(0.7, 0.2, 0.2, 1.0), imgui.ImVec2(90, 25)) then
+                    table.remove(favoriteAnimations, i)
+                    saveFavorites()
+                end
+                
+                imgui.Separator()
             end
-            imgui.SameLine()
-            if coloredButton("Удалить##" .. anim.name, imgui.ImVec4(1.0, 0.0, 0.0, 1.0), imgui.ImVec2(80, 25)) then
-                table.remove(favoriteAnimations, i)
-                saveFavorites()
-            end
+            imgui.EndChild()
         end
 
         imgui.End()
@@ -429,7 +507,11 @@ local favoritesFrame = imgui.OnFrame(
 )
 
 function main()
+    if not isSampLoaded() or not isSampfuncsLoaded() then return end
+    while not isSampAvailable() do wait(100) end
+
     loadFavorites()
+    
     addEventHandler("onWindowMessage", function(msg, wparam, lparam)
         if msg == wm.WM_KEYDOWN or msg == wm.WM_SYSKEYDOWN then
             if isKeyDown(vkeys.VK_MENU) and wparam == vkeys.VK_8 then
@@ -440,5 +522,6 @@ function main()
             end
         end
     end)
+    
     wait(-1)
 end
